@@ -1,0 +1,10 @@
+Format: 1.3
+Type: Application
+FullName: de.uni_passau.fim.NetEmulator
+Name: NetEmulator
+Description: |
+    TODO: Write description.
+Author: 'Jürgen Rottmeier, Florian Niederhuber'
+Tags: [network, emulation, tc, netm]
+Classes:
+    de.uni_passau.fim.NetEmulator: NetEmulator.yaml

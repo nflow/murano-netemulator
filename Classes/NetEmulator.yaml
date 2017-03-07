@@ -1,0 +1,99 @@
+Namespaces:
+  =: de.uni_passau.fim
+  std: io.murano
+  res: io.murano.resources
+  sys: io.murano.system
+  conf: io.murano.configuration
+
+Name: NetEmulator
+
+Extends: std:Application
+
+Properties:
+    config:
+        Contract: $.string()
+    template:
+        Contract: $.template(res:Instance, excludeProperties => [name]).notNull()
+Methods:
+  .init:
+    Body:
+      - $.environment: $.find(std:Environment).require()
+
+  deploy:
+    Body:
+      - If: not $.getAttr(deployed, false)
+        Then:
+            - If: not $.config.isEmpty()
+              Then:
+                - $._report('Parsing configuration ...')
+                - $nodesList: $._parseConfig($.config)
+                - $._report(str($nodesList))
+                - If: $nodesList.len() > 0
+                  Then:
+                    - $instanceDict: dict()
+                    - For: node
+                      In: $nodesList
+                      Do:
+                        - $._report(concat('Starting node ', $node.name, ' ...'))
+                        - $template: $.template
+                        - $template.name: $node.name
+                        - $template.image: $node.image
+                        - $template['?'].name: Server $node.name
+                        - $instanceDict: $instanceDict.set($node.name, new($template, $this))
+                        - $instanceDict.get($node.name).deploy()
+                    - For: node
+                      In: $nodesList
+                      Do:
+                        - $._report(concat('Setup node ', $node.name, ' ...'))
+                        - $instance: $instanceDict.get($node.name)
+                        - $addSetupScript: sys:Resources.string('setupNode.sh')
+                        - conf:Linux.runCommand($instance.agent, $addSetupScript)
+                        - $i: 1
+                        - For: config
+                          In: $node.nodeConfigs
+                          Do:
+                            - $._report('Applying rule ...')
+                            - $ip: $instanceDict.get($config.dstName).ipAddresses[0]
+                            - $scriptParameter:
+                                "%ID%": $i
+                                "%DST_IP%": $ip
+                                "%DELAY%": $config.delay                                
+                                "%JITTER%": 5ms
+                                "%LOSS%": $config.loss
+                                "%BANDWIDTH%": $config.bandwidth
+                            - $addRuleScript: sys:Resources.string('addRule.sh').replace($scriptParameter)
+                            - conf:Linux.runCommand($instance.agent, $addRuleScript, helpText => 'Add rule ...')
+                            - $i: $i + 1
+      - $.setAttr(deployed, true)
+
+  _parseConfig:
+    Arguments:
+        - conf:
+            Contract: $.string().notNull()
+    Body:
+        - $._report('Begin parsing configuration.')
+        - $nodesList: list()
+        - $nodes: $conf.split(',')
+        - For: node
+          In: $nodes
+          Do:
+            - $nodeConfig: $node.norm().split(':')
+            - $name: $nodeConfig[0].norm().split('@')[0]
+            - $image: $nodeConfig[0].norm().split('@')[1]
+            - $netConfigs: $nodeConfig[1].norm().split('|')
+            - $configList: list()
+            - For: config
+              In: $netConfigs
+              Do:
+                - $splitConfig: $config.norm().split(' ')
+                - $._report(str($splitConfig))
+                - $configList: $configList.insert(0, dict(dstName => $splitConfig[0], delay => $splitConfig[1], loss => $splitConfig[2], bandwidth => $splitConfig[3]))   
+            - $nodesList: $nodesList.insert(0, dict(name => $name, image => $image, nodeConfigs => $configList))
+        - Return: $nodesList
+            
+  _report:
+    Arguments:
+      - message:
+          Contract: $.string().notNull()
+    Body:
+      -  $.environment.reporter.report($this, $message)
